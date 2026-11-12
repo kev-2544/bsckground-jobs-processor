@@ -266,6 +266,48 @@ func processJob(
 	return result
 }
 
+		result := p.processWithRetries(j, workerID)
+
+		// Decide the final status after all processing attempts.
+		finalStatus := result.Status
+
+		if finalStatus == job.StatusFailed {
+			finalStatus = job.StatusDeadLetter
+			result.Status = finalStatus
+		}
+
+		var processingError error
+		if result.Error != "" {
+			processingError = fmt.Errorf("%s", result.Error)
+		}
+
+		// Update the tracker before creating the dead letter.
+		if err := p.tracker.Complete(
+			j.ID,
+			finalStatus,
+			processingError,
+		); err != nil {
+			fmt.Printf("Tracking error for job %d: %v\n", j.ID, err)
+		}
+
+		if finalStatus == job.StatusDeadLetter {
+			// Retrieve the latest job state, including its attempts.
+			trackedJob, exists := p.tracker.Get(j.ID)
+			if exists {
+				j = trackedJob
+			}
+
+			deadLetter := job.DeadLetter{
+				Job:         j,
+				FinalResult: result,
+				FailedAt:    time.Now(),
+			}
+
+			p.deadLetters <- deadLetter
+		}
+
+		p.results <- result
+
 func (p *WorkerPool) Wait() {
 	p.wg.Wait()
 }
