@@ -73,7 +73,6 @@ func TestProcessJobTimeout(t *testing.T) {
 	}
 }
 
-
 func TestFlakyJobSucceedsAfterRetries(t *testing.T) {
 	tracker := job.NewTracker()
 	newJob := job.NewJob(1, "Flaky Job", "flaky")
