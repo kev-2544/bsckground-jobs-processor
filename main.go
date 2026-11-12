@@ -1,10 +1,14 @@
 
-
 package main
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
+	"time"
 
 	"background-job-processor/internal/job"
 	"background-job-processor/internal/queue"
@@ -14,24 +18,31 @@ import (
 func main() {
 	const workerCount = 3
 	const queueCapacity = 10
+	const jobTimeout = 3 * time.Second
 
-	// Initialize the application components.
+	// Listen for Ctrl+C and termination signals.
+	shutdownCtx, stopSignals := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stopSignals()
+
+	// Initialize application components.
 	jobQueue := queue.NewQueue(queueCapacity)
 	tracker := job.NewTracker()
 
-	// Results channel carries completed and failed job results.
-	// The collector will consume these results concurrently.
 	results := make(chan job.Result)
 
-	// Connect the worker pool to the queue, results channel and tracker.
 	pool := worker.NewWorkerPool(
 		workerCount,
+		jobTimeout,
 		jobQueue.Jobs(),
 		results,
 		tracker,
 	)
 
-	// Start the result collector before workers can publish results.
+	// Start the result collector.
 	var collectorWG sync.WaitGroup
 
 	collectorWG.Add(1)
@@ -55,16 +66,32 @@ func main() {
 		}
 	}()
 
-	// Start all workers.
+	// Start workers.
 	pool.Start()
 
-	// Submit jobs.
-	for i := 1; i <= 8; i++ {
+	fmt.Println("Background job processor started.")
+	fmt.Println("Press Ctrl+C to request graceful shutdown.")
+
+	// Simulate submitting background jobs.
+	for i := 1; i <= 12; i++ {
+
+		// Stop accepting new jobs when shutdown is requested.
+		select {
+		case <-shutdownCtx.Done():
+			fmt.Println("\nShutdown requested. Stopping submissions.")
+			goto shutdown
+		default:
+		}
+
 		payload := fmt.Sprintf("Payload for job %d", i)
 
-		// Simulate a failed job.
-		if i == 4 || i == 7 {
+		// Simulate normal failures and timeouts.
+		if i == 4 {
 			payload = "fail"
+		}
+
+		if i == 7 {
+			payload = "slow"
 		}
 
 		newJob := job.NewJob(
@@ -73,7 +100,6 @@ func main() {
 			payload,
 		)
 
-		// Register before submission so workers can track the job.
 		if err := tracker.Register(newJob); err != nil {
 			fmt.Printf("Registration failed: %v\n", err)
 			continue
@@ -81,25 +107,40 @@ func main() {
 
 		if err := jobQueue.Submit(newJob); err != nil {
 			fmt.Printf("Submission failed: %v\n", err)
+		} else {
+			fmt.Printf("Submitted job %d\n", i)
+		}
+
+		// Slow down submissions so Ctrl+C can be tested.
+		select {
+		case <-shutdownCtx.Done():
+			fmt.Println("\nShutdown requested.")
+			goto shutdown
+		case <-time.After(250 * time.Millisecond):
 		}
 	}
 
-	// Signal that no additional jobs will be submitted.
+shutdown:
+
+	fmt.Println("\nClosing job queue...")
+
+	// No more jobs will be accepted.
 	jobQueue.Close()
 
-	// Wait until all workers have finished processing.
+	// Workers finish processing queued jobs and then exit.
+	fmt.Println("Waiting for workers to finish...")
 	pool.Wait()
 
-	// All workers have exited, so nobody can send more results.
+	// No worker can publish additional results now.
 	close(results)
 
 	// Wait for the result collector to finish.
 	collectorWG.Wait()
 
-	// Display final job statistics.
+	// Display final statistics.
 	fmt.Println("\n========== JOB SUMMARY ==========")
 
-	var completed, failed int
+	var completed, failed, pending int
 
 	for _, j := range tracker.All() {
 		fmt.Printf("Job %d: %s\n", j.ID, j.Status)
@@ -109,12 +150,17 @@ func main() {
 			completed++
 		case job.StatusFailed:
 			failed++
+		case job.StatusPending:
+			pending++
 		}
 	}
 
 	fmt.Println("---------------------------------")
-	fmt.Printf("Total jobs: %d\n", completed+failed)
+	fmt.Printf("Total registered: %d\n", completed+failed+pending)
 	fmt.Printf("Completed: %d\n", completed)
 	fmt.Printf("Failed: %d\n", failed)
+	fmt.Printf("Pending: %d\n", pending)
 	fmt.Println("=================================")
+
+	fmt.Println("Background job processor stopped.")
 }

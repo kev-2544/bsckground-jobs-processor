@@ -56,3 +56,31 @@ func TestReceiveJob(t *testing.T) {
 		t.Fatalf("expected job ID %d, got %d", expected.ID, received.ID)
 	}
 }
+
+
+func TestSubmitAfterClose(t *testing.T) {
+	q := NewQueue(2)
+
+	q.Close()
+
+	j := job.NewJob(1, "Test Job", "payload")
+
+	err := q.Submit(j)
+
+	if err == nil {
+		t.Fatal("expected submission to fail after queue closure")
+	}
+}
+
+func TestCloseIsSafeToCallMultipleTimes(t *testing.T) {
+	q := NewQueue(2)
+
+	q.Close()
+	q.Close()
+
+	if q.Length() != 0 {
+		t.Fatal("expected empty queue after closure")
+	}
+}
+
+

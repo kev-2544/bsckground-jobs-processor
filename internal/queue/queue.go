@@ -3,6 +3,7 @@ package queue
 
 import (
 	"fmt"
+	"sync"
 
 	"background-job-processor/internal/job"
 )
@@ -10,45 +11,57 @@ import (
 // Queue manages jobs using a buffered channel.
 type Queue struct {
 	jobs chan job.Job
+
+	// Protects submission and channel closure.
+	mu     sync.RWMutex
+	closed bool
 }
 
-// NewQueue creates a queue with a specified capacity.
+// NewQueue creates a buffered job queue.
 func NewQueue(capacity int) *Queue {
 	if capacity <= 0 {
 		panic("queue capacity must be greater than zero")
 	}
 
 	return &Queue{
-		// The second argument creates a buffered channel.
-		// It allows jobs to wait in the queue before workers receive them.
 		jobs: make(chan job.Job, capacity),
 	}
 }
 
-// Submit places a job into the queue.
+// Submit adds a job without blocking when the queue is full.
 func (q *Queue) Submit(j job.Job) error {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+
+	if q.closed {
+		return fmt.Errorf("job queue is closed")
+	}
+
 	select {
 	case q.jobs <- j:
-		// The job was successfully placed in the channel.
 		return nil
-
 	default:
-		// The channel buffer is full.
 		return fmt.Errorf("job queue is full")
 	}
 }
 
-// Jobs exposes the receive-only channel to workers.
+// Jobs exposes a receive-only channel to workers.
 func (q *Queue) Jobs() <-chan job.Job {
 	return q.jobs
 }
 
-// Close signals that no more jobs will be submitted.
+// Close prevents further submissions and closes the jobs channel.
 func (q *Queue) Close() {
-	close(q.jobs)
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if !q.closed {
+		q.closed = true
+		close(q.jobs)
+	}
 }
 
-// Length returns the number of jobs currently waiting in the buffer.
+// Length returns the number of jobs waiting in the buffer.
 func (q *Queue) Length() int {
 	return len(q.jobs)
 }
