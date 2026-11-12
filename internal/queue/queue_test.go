@@ -1,4 +1,3 @@
-
 package queue
 
 import (
@@ -57,7 +56,6 @@ func TestReceiveJob(t *testing.T) {
 	}
 }
 
-
 func TestSubmitAfterClose(t *testing.T) {
 	q := NewQueue(2)
 
@@ -82,5 +80,3 @@ func TestCloseIsSafeToCallMultipleTimes(t *testing.T) {
 		t.Fatal("expected empty queue after closure")
 	}
 }
-
-

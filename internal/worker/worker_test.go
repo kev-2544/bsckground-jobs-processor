@@ -1,4 +1,3 @@
-
 package worker
 
 import (
@@ -19,7 +18,7 @@ func TestProcessJobSuccess(t *testing.T) {
 
 	j := job.NewJob(1, "Test Job", "normal")
 
-	result := processJob(ctx, j, 1)
+	result := processJob(ctx, j, 1, 1)
 
 	if result.Status != job.StatusCompleted {
 		t.Fatalf("expected completed, got %s", result.Status)
@@ -39,7 +38,7 @@ func TestProcessJobFailure(t *testing.T) {
 
 	j := job.NewJob(2, "Failing Job", "fail")
 
-	result := processJob(ctx, j, 1)
+	result := processJob(ctx, j, 1, 1)
 
 	if result.Status != job.StatusFailed {
 		t.Fatalf("expected failed, got %s", result.Status)
@@ -59,7 +58,7 @@ func TestProcessJobTimeout(t *testing.T) {
 
 	j := job.NewJob(3, "Slow Job", "slow")
 
-	result := processJob(ctx, j, 1)
+	result := processJob(ctx, j, 1, 1)
 
 	if result.Status != job.StatusFailed {
 		t.Fatalf("expected failed status, got %s", result.Status)

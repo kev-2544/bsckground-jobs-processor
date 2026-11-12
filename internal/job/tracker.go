@@ -1,4 +1,3 @@
-
 package job
 
 import (
@@ -70,6 +69,14 @@ func (t *Tracker) Complete(id int, status Status, processingError error) error {
 	}
 
 	t.jobs[id] = j
+	j.Status = status
+	j.CompletedAt = time.Now()
+
+	if processingError != nil {
+		j.Error = processingError.Error()
+	} else {
+		j.Error = ""
+	}
 
 	return nil
 }
@@ -95,4 +102,21 @@ func (t *Tracker) All() []Job {
 	}
 
 	return result
+}
+
+func (t *Tracker) UpdateAttempt(id int, attempt int, status Status) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	j, exists := t.jobs[id]
+	if !exists {
+		return fmt.Errorf("job %d not found", id)
+	}
+
+	j.Attempts = attempt
+	j.Status = status
+
+	t.jobs[id] = j
+
+	return nil
 }
